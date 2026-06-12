@@ -1,4 +1,3 @@
-require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -25,11 +24,7 @@ app.use(express.json());
 app.use('/receive-data', bodyParser.raw({ type: 'application/octet-stream', limit: '10mb' }));
 
 // mongoose.connect('mongodb://localhost:27017/ipcheck', {})
-// mongoose.connect('mongodb+srv://mongod:mongod@cluster0.wcqrnb3.mongodb.net/mongod', {})
-//   .then(() => console.log('MongoDB connected'))
-//   .catch(err => console.error('MongoDB connection error:', err));
-
-mongoose.connect(process.env.MONGODB_URI)
+mongoose.connect('mongodb+srv://mongod:mongod@cluster0.wcqrnb3.mongodb.net/mongod', {})
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('MongoDB connection error:', err));
 

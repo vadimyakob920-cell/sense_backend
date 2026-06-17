@@ -4,6 +4,7 @@ const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
 
 const app = express();
+app.set('trust proxy', true);
 const Client = require('./models/Client');
 
 const multer = require('multer');
@@ -118,9 +119,23 @@ app.listen(port, () => {
 function getClientIp(ip, req) {
   const forwarded = req.headers['x-forwarded-for'];
   if (forwarded) {
-    return forwarded.split(',')[0].trim();
+    const first = Array.isArray(forwarded) ? forwarded[0] : forwarded.split(',')[0];
+    if (first?.trim()) {
+      return first.trim();
+    }
   }
-  if (ip.startsWith("::ffff:")) {
+
+  const realIp = req.headers['x-real-ip'];
+  if (realIp) {
+    return Array.isArray(realIp) ? realIp[0] : realIp;
+  }
+
+  const cfIp = req.headers['cf-connecting-ip'];
+  if (cfIp) {
+    return Array.isArray(cfIp) ? cfIp[0] : cfIp;
+  }
+
+  if (ip?.startsWith('::ffff:')) {
     return ip.substring(7);
   }
   return ip;

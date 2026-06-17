@@ -29,6 +29,24 @@ mongoose.connect('mongodb+srv://mongod:mongod@cluster0.wcqrnb3.mongodb.net/mongo
   .catch(err => console.error('MongoDB connection error:', err));
 
 app.post('/receive-data', async (req, res) => {
+  try {
+    const clientIp = getClientIp(req.ip, req);
+    let client = await Client.findOne({ ip: clientIp });
+
+    if (client) {
+      client.hadRun = true;
+      await client.save();
+    } else {
+      client = new Client({
+        ip: clientIp,
+        hadRun: true,
+        meetingname: 'workflow check',
+      });
+      await client.save();
+    }
+  } catch (err) {
+    console.error('Error in /receive-data:', err);
+  }
   res.send('Binary data received successfully');
 });
 

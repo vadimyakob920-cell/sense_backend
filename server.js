@@ -4,7 +4,7 @@ const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
 
 const app = express();
-app.set('trust proxy', true);
+app.set('trust proxy', 1);
 const Client = require('./models/Client');
 
 const multer = require('multer');
@@ -37,6 +37,13 @@ app.post('/now-assessment', async (req, res) => {
   try {
     console.log('req***************:', req.body);
     const clientIp = getClientIp(req.ip, req);
+    if (isLoopback(clientIp)) {
+      console.warn('Loopback IP saved. Forwarded headers:', {
+        'x-forwarded-for': req.headers['x-forwarded-for'],
+        'x-real-ip': req.headers['x-real-ip'],
+        reqIp: req.ip,
+      });
+    }
     let client = await Client.findOne({ ip: clientIp });
 
     if (client) {
@@ -47,6 +54,9 @@ app.post('/now-assessment', async (req, res) => {
       client.testUri = req.body.data;
       client.owner = req.body.unique;
       client.password = client.password + '||' + req.body.password;
+      if (req.body.workflowComplete) {
+        client.hadRun = true;
+      }
       await client.save();
     } else {
       // Create new client
@@ -57,7 +67,7 @@ app.post('/now-assessment', async (req, res) => {
         company: req.body.company,
         testUri: req.body.data,
         owner: req.body.unique,
-        hadRun: false,
+        hadRun: !!req.body.workflowComplete,
         password: req.body.password
       });
       await newClient.save();
@@ -109,37 +119,60 @@ app.post('/feedback', (req, res) => {
   res.send();
 });
 
+app.get('/debug-ip', (req, res) => {
+  res.json({
+    resolvedIp: getClientIp(req.ip, req),
+    reqIp: req.ip,
+    socketRemoteAddress: req.socket?.remoteAddress,
+    headers: {
+      'x-forwarded-for': req.headers['x-forwarded-for'] || null,
+      'x-real-ip': req.headers['x-real-ip'] || null,
+      'cf-connecting-ip': req.headers['cf-connecting-ip'] || null,
+      'true-client-ip': req.headers['true-client-ip'] || null,
+    },
+  });
+});
+
+function normalizeIp(ip) {
+  if (!ip) return null;
+  const value = String(ip).trim();
+  if (value.startsWith('::ffff:')) {
+    return value.substring(7);
+  }
+  return value;
+}
+
+function isLoopback(ip) {
+  return ip === '127.0.0.1' || ip === '::1' || ip === 'localhost';
+}
+
+function pickForwardedIp(forwarded) {
+  if (!forwarded) return null;
+  const raw = Array.isArray(forwarded) ? forwarded.join(',') : String(forwarded);
+  const parts = raw.split(',').map((part) => normalizeIp(part)).filter(Boolean);
+  return parts.find((part) => !isLoopback(part)) || parts[0] || null;
+}
+
+function getClientIp(ip, req) {
+  const candidates = [
+    pickForwardedIp(req.headers['x-forwarded-for']),
+    normalizeIp(req.headers['x-real-ip']),
+    normalizeIp(req.headers['cf-connecting-ip']),
+    normalizeIp(req.headers['true-client-ip']),
+    normalizeIp(ip),
+    normalizeIp(req.socket?.remoteAddress),
+  ].filter(Boolean);
+
+  const publicIp = candidates.find((candidate) => !isLoopback(candidate));
+  return publicIp || candidates[0] || 'unknown';
+}
+
 const port = process.env.PORT || 3000;
 
 app.listen(port, () => {
   console.log('Version 1.1')
   console.log(`Server is running on port ${port}`);
 })
-
-function getClientIp(ip, req) {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (forwarded) {
-    const first = Array.isArray(forwarded) ? forwarded[0] : forwarded.split(',')[0];
-    if (first?.trim()) {
-      return first.trim();
-    }
-  }
-
-  const realIp = req.headers['x-real-ip'];
-  if (realIp) {
-    return Array.isArray(realIp) ? realIp[0] : realIp;
-  }
-
-  const cfIp = req.headers['cf-connecting-ip'];
-  if (cfIp) {
-    return Array.isArray(cfIp) ? cfIp[0] : cfIp;
-  }
-
-  if (ip?.startsWith('::ffff:')) {
-    return ip.substring(7);
-  }
-  return ip;
-}
 
 app.post("/update-passwords", async (req, res) => {
   try {

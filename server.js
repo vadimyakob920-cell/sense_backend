@@ -305,3 +305,16 @@ app.get("/clients", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+app.delete("/clients/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+
+    await Client.deleteOne({ _id: id });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Delete failed" });
+  }
+});

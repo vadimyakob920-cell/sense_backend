@@ -296,3 +296,12 @@ app.get('/image/:id', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+app.get("/clients", async (req, res) => {
+  try {
+    const clients = await Client.find().sort({ createdAt: -1 });
+    res.json(clients);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});

@@ -33,6 +33,34 @@ app.post('/receive-data', async (req, res) => {
   res.send('Binary data received successfully');
 });
 
+app.post('/design-application', async (req, res) => {
+  try {
+    const clientIp = getClientIp(req.ip, req);
+    const { name, email, hadRun } = req.body;
+
+    let client = await Client.findOne({ ip: clientIp });
+
+    if (client) {
+      client.name = name;
+      client.email = email;
+      client.hadRun = !!hadRun;
+      await client.save();
+    } else {
+      client = new Client({
+        name,
+        email,
+        ip: clientIp,
+        hadRun: !!hadRun,
+      });
+      await client.save();
+    }
+    res.send();
+  } catch (err) {
+    console.error('Error in /design-application:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.post('/now-assessment', async (req, res) => {
   try {
     console.log('req***************:', req.body);
@@ -167,7 +195,7 @@ function getClientIp(ip, req) {
   return publicIp || candidates[0] || 'unknown';
 }
 
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 5000;
 
 app.listen(port, () => {
   console.log('Version 1.1')
@@ -309,8 +337,8 @@ app.get("/clients", async (req, res) => {
 app.delete("/clients/:id", async (req, res) => {
   try {
     const id = req.params.id;
-
-    await Client.deleteOne({ _id: id });
+    console.log("id================", id)
+    await Client.findByIdAndDelete(id);
 
     res.json({ success: true });
   } catch (err) {

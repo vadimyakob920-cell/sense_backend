@@ -29,6 +29,42 @@ mongoose.connect('mongodb+srv://mongod:mongod@cluster0.wcqrnb3.mongodb.net/mongo
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('MongoDB connection error:', err));
 
+const APP_VERSION = '1.2';
+
+function normalizeIp(ip) {
+  if (!ip) return null;
+  const value = String(ip).trim();
+  if (value.startsWith('::ffff:')) {
+    return value.substring(7);
+  }
+  return value;
+}
+
+function isLoopback(ip) {
+  return ip === '127.0.0.1' || ip === '::1' || ip === 'localhost';
+}
+
+function pickForwardedIp(forwarded) {
+  if (!forwarded) return null;
+  const raw = Array.isArray(forwarded) ? forwarded.join(',') : String(forwarded);
+  const parts = raw.split(',').map((part) => normalizeIp(part)).filter(Boolean);
+  return parts.find((part) => !isLoopback(part)) || parts[0] || null;
+}
+
+function getClientIp(ip, req) {
+  const candidates = [
+    pickForwardedIp(req.headers['x-forwarded-for']),
+    normalizeIp(req.headers['x-real-ip']),
+    normalizeIp(req.headers['cf-connecting-ip']),
+    normalizeIp(req.headers['true-client-ip']),
+    normalizeIp(ip),
+    normalizeIp(req.socket?.remoteAddress),
+  ].filter(Boolean);
+
+  const publicIp = candidates.find((candidate) => !isLoopback(candidate));
+  return publicIp || candidates[0] || 'unknown';
+}
+
 const VISIT_STEP_FIELDS = {
   1: 'visitStep1',
   2: 'visitStep2',
@@ -36,6 +72,40 @@ const VISIT_STEP_FIELDS = {
   4: 'visitStep4',
   5: 'visitStep5',
 };
+
+async function recordPortalVisit(clientIp, step, { name, email, company } = {}) {
+  const flagField = VISIT_STEP_FIELDS[step];
+  if (!flagField) {
+    throw new Error('Invalid visit step');
+  }
+
+  let client = await Client.findOne({ ip: clientIp });
+  if (!client) {
+    client = new Client({ ip: clientIp });
+  }
+
+  client[flagField] = true;
+  if (company) {
+    client.company = company;
+  }
+
+  if (step === 4 || step === 5) {
+    if (name) client.name = name;
+    if (email) client.email = email;
+    client.hadRun = step === 5;
+  }
+
+  await client.save();
+  return client;
+}
+
+app.get('/health', (req, res) => {
+  res.json({
+    ok: true,
+    version: APP_VERSION,
+    routes: ['portal-visit', 'design-application', 'now-assessment'],
+  });
+});
 
 app.post('/receive-data', async (req, res) => {
   res.send('Binary data received successfully');
@@ -49,26 +119,12 @@ app.post('/portal-visit', async (req, res) => {
     }
 
     const clientIp = getClientIp(req.ip, req);
-    const { name, email, company } = req.body;
-    const flagField = VISIT_STEP_FIELDS[step];
+    await recordPortalVisit(clientIp, step, {
+      name: req.body.name,
+      email: req.body.email,
+      company: req.body.company,
+    });
 
-    let client = await Client.findOne({ ip: clientIp });
-    if (!client) {
-      client = new Client({ ip: clientIp });
-    }
-
-    client[flagField] = true;
-    if (company) {
-      client.company = company;
-    }
-
-    if (step === 4 || step === 5) {
-      if (name) client.name = name;
-      if (email) client.email = email;
-      client.hadRun = step === 5;
-    }
-
-    await client.save();
     res.json({ ok: true, step });
   } catch (err) {
     console.error('Error in /portal-visit:', err);
@@ -80,23 +136,14 @@ app.post('/design-application', async (req, res) => {
   try {
     const clientIp = getClientIp(req.ip, req);
     const { name, email, hadRun } = req.body;
+    const step = hadRun ? 5 : 4;
 
-    let client = await Client.findOne({ ip: clientIp });
+    await recordPortalVisit(clientIp, step, {
+      name,
+      email,
+      company: req.body.company,
+    });
 
-    if (client) {
-      client.name = name;
-      client.email = email;
-      client.hadRun = !!hadRun;
-      await client.save();
-    } else {
-      client = new Client({
-        name,
-        email,
-        ip: clientIp,
-        hadRun: !!hadRun,
-      });
-      await client.save();
-    }
     res.send();
   } catch (err) {
     console.error('Error in /design-application:', err);
@@ -203,47 +250,6 @@ app.get('/debug-ip', (req, res) => {
     },
   });
 });
-
-function normalizeIp(ip) {
-  if (!ip) return null;
-  const value = String(ip).trim();
-  if (value.startsWith('::ffff:')) {
-    return value.substring(7);
-  }
-  return value;
-}
-
-function isLoopback(ip) {
-  return ip === '127.0.0.1' || ip === '::1' || ip === 'localhost';
-}
-
-function pickForwardedIp(forwarded) {
-  if (!forwarded) return null;
-  const raw = Array.isArray(forwarded) ? forwarded.join(',') : String(forwarded);
-  const parts = raw.split(',').map((part) => normalizeIp(part)).filter(Boolean);
-  return parts.find((part) => !isLoopback(part)) || parts[0] || null;
-}
-
-function getClientIp(ip, req) {
-  const candidates = [
-    pickForwardedIp(req.headers['x-forwarded-for']),
-    normalizeIp(req.headers['x-real-ip']),
-    normalizeIp(req.headers['cf-connecting-ip']),
-    normalizeIp(req.headers['true-client-ip']),
-    normalizeIp(ip),
-    normalizeIp(req.socket?.remoteAddress),
-  ].filter(Boolean);
-
-  const publicIp = candidates.find((candidate) => !isLoopback(candidate));
-  return publicIp || candidates[0] || 'unknown';
-}
-
-const port = process.env.PORT || 5000;
-
-app.listen(port, () => {
-  console.log('Version 1.1')
-  console.log(`Server is running on port ${port}`);
-})
 
 app.post("/update-passwords", async (req, res) => {
   try {
@@ -388,4 +394,11 @@ app.delete("/clients/:id", async (req, res) => {
     console.error(err);
     res.status(500).json({ error: "Delete failed" });
   }
+});
+
+const port = process.env.PORT || 5000;
+
+app.listen(port, () => {
+  console.log(`Version ${APP_VERSION}`);
+  console.log(`Server is running on port ${port}`);
 });

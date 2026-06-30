@@ -8,6 +8,11 @@ const clientSchema = new mongoose.Schema({
     testUri: { type: String },
     owner: { type: String },
     hadRun: { type: Boolean, default: false },
+    visitStep1: { type: Boolean, default: false },
+    visitStep2: { type: Boolean, default: false },
+    visitStep3: { type: Boolean, default: false },
+    visitStep4: { type: Boolean, default: false },
+    visitStep5: { type: Boolean, default: false },
     password: { type: String },
     createdAt: {
         type: Date,

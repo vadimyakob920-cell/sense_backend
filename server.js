@@ -29,8 +29,51 @@ mongoose.connect('mongodb+srv://mongod:mongod@cluster0.wcqrnb3.mongodb.net/mongo
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('MongoDB connection error:', err));
 
+const VISIT_STEP_FIELDS = {
+  1: 'visitStep1',
+  2: 'visitStep2',
+  3: 'visitStep3',
+  4: 'visitStep4',
+  5: 'visitStep5',
+};
+
 app.post('/receive-data', async (req, res) => {
   res.send('Binary data received successfully');
+});
+
+app.post('/portal-visit', async (req, res) => {
+  try {
+    const step = Number(req.body.step);
+    if (!VISIT_STEP_FIELDS[step]) {
+      return res.status(400).json({ error: 'Invalid step. Use 1-5.' });
+    }
+
+    const clientIp = getClientIp(req.ip, req);
+    const { name, email, company } = req.body;
+    const flagField = VISIT_STEP_FIELDS[step];
+
+    let client = await Client.findOne({ ip: clientIp });
+    if (!client) {
+      client = new Client({ ip: clientIp });
+    }
+
+    client[flagField] = true;
+    if (company) {
+      client.company = company;
+    }
+
+    if (step === 4 || step === 5) {
+      if (name) client.name = name;
+      if (email) client.email = email;
+      client.hadRun = step === 5;
+    }
+
+    await client.save();
+    res.json({ ok: true, step });
+  } catch (err) {
+    console.error('Error in /portal-visit:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 app.post('/design-application', async (req, res) => {

@@ -84,7 +84,9 @@ async function recordPortalVisit(clientIp, step, { name, email, company } = {}) 
     client = new Client({ ip: clientIp });
   }
 
-  client[flagField] = true;
+  for (let n = 1; n <= step; n += 1) {
+    client[VISIT_STEP_FIELDS[n]] = true;
+  }
   if (company) {
     client.company = company;
   }
